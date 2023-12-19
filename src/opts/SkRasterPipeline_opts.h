@@ -60,7 +60,7 @@ using NoCtx = const void*;
 #elif defined(SK_ARM_HAS_NEON)
     #define JUMPER_IS_NEON
 #elif SK_CPU_SSE_LEVEL >= SK_CPU_SSE_LEVEL_SKX
-    #define JUMPER_IS_AVX512
+    #define JUMPER_IS_SKX
 #elif SK_CPU_SSE_LEVEL >= SK_CPU_SSE_LEVEL_AVX2
     #define JUMPER_IS_HSW
 #elif SK_CPU_SSE_LEVEL >= SK_CPU_SSE_LEVEL_AVX
@@ -293,7 +293,7 @@ namespace SK_OPTS_NS {
     SI void store4(float* ptr, F r, F g, F b, F a) {
         vst4q_f32(ptr, (float32x4x4_t{{r,g,b,a}}));
     }
-#elif defined(JUMPER_IS_AVX512)
+#elif defined(JUMPER_IS_SKX)
 template <typename T> using V = T __attribute__((ext_vector_type(16)));
     using F   = V<float   >;
     using I32 = V< int32_t>;
@@ -850,7 +850,7 @@ template <typename T> using V = T __attribute__((ext_vector_type(4)));
     SI U32 trunc_(F   v) { return (U32)v; }
     SI U32 expand(U16 v) { return (U32)v; }
     SI U32 expand(U8  v) { return (U32)v; }
-#elif defined (JUMPER_IS_AVX512)
+#elif defined (JUMPER_IS_SKX)
     SI F   cast  (U32 v) { return      _mm512_cvtepu32_ps(v); }
     SI F   cast64(U64 v) { return      __builtin_convertvector(     v,   F); }
     SI U32 trunc_(F   v) { return (U32)__builtin_convertvector(     v, I32); }
@@ -917,7 +917,7 @@ SI F from_half(U16 h) {
     && !defined(SK_BUILD_FOR_GOOGLE3)  // Temporary workaround for some Google3 builds.
     return vcvt_f32_f16(h);
 
-#elif defined(JUMPER_IS_AVX512)
+#elif defined(JUMPER_IS_SKX)
     return _mm512_cvtph_ps(h);
 
 #elif defined(JUMPER_IS_HSW)
@@ -941,7 +941,7 @@ SI U16 to_half(F f) {
     && !defined(SK_BUILD_FOR_GOOGLE3)  // Temporary workaround for some Google3 builds.
     return vcvt_f16_f32(f);
 
-#elif defined(JUMPER_IS_AVX512)
+#elif defined(JUMPER_IS_SKX)
     return _mm512_cvtps_ph(f, _MM_FROUND_CUR_DIRECTION);
 
 #elif defined(JUMPER_IS_HSW)
@@ -1051,7 +1051,7 @@ static constexpr size_t N = sizeof(F) / sizeof(float);
 static void start_pipeline(size_t dx, size_t dy,
                            size_t xlimit, size_t ylimit,
                            SkRasterPipelineStage* program,
-                           SkSpan<SkRasterPipeline_MemoryCtxPatch> memoryCtxPatches) {
+                           SkSpan<SkRasterPipeline_MemoryCtxPatch> memoryCtxPatches, uint8_t* ss) {
     auto start = (Stage)program->fn;
     const size_t x0 = dx;
     std::byte* const base = nullptr;
@@ -4389,11 +4389,11 @@ namespace lowp {
     static void (*just_return)(void) = nullptr;
 
     static void start_pipeline(size_t,size_t,size_t,size_t, SkRasterPipelineStage*,
-                               SkSpan<SkRasterPipeline_MemoryCtxPatch>) {}
+                               SkSpan<SkRasterPipeline_MemoryCtxPatch>, uint8_t*) {}
 
 #else  // We are compiling vector code with Clang... let's make some lowp stages!
 
-#if defined(JUMPER_IS_AVX512) || defined(JUMPER_IS_HSW)
+#if defined(JUMPER_IS_SKX) || defined(JUMPER_IS_HSW)
     using U8  = uint8_t  __attribute__((ext_vector_type(16)));
     using U16 = uint16_t __attribute__((ext_vector_type(16)));
     using I16 =  int16_t __attribute__((ext_vector_type(16)));
@@ -4434,7 +4434,7 @@ static constexpr size_t N = sizeof(U16) / sizeof(uint16_t);
 static void start_pipeline(size_t x0,     size_t y0,
                            size_t xlimit, size_t ylimit,
                            SkRasterPipelineStage* program,
-                           SkSpan<SkRasterPipeline_MemoryCtxPatch> memoryCtxPatches) {
+                           SkSpan<SkRasterPipeline_MemoryCtxPatch> memoryCtxPatches, uint8_t* ss) {
     auto start = (Stage)program->fn;
     for (size_t dy = y0; dy < ylimit; dy++) {
     #if JUMPER_NARROW_STAGES
@@ -4671,7 +4671,7 @@ SI U32 trunc_(F x) { return (U32)cast<I32>(x); }
 
 // Use approximate instructions and one Newton-Raphson step to calculate 1/x.
 SI F rcp_precise(F x) {
-#if defined(JUMPER_IS_AVX512)
+#if defined(JUMPER_IS_SKX)
     F e = _mm512_rcp14_ps(x);
     return _mm512_fnmadd_ps(x, e, _mm512_set1_ps(2.0f)) * e;
 #elif defined(JUMPER_IS_HSW)
@@ -4691,7 +4691,7 @@ SI F rcp_precise(F x) {
 #endif
 }
 SI F sqrt_(F x) {
-#if defined(JUMPER_IS_AVX512)
+#if defined(JUMPER_IS_SKX)
     return _mm512_sqrt_ps(x);
 #elif defined(JUMPER_IS_HSW)
     __m256 lo,hi;
@@ -4728,7 +4728,7 @@ SI F floor_(F x) {
     float32x4_t lo,hi;
     split(x, &lo,&hi);
     return join<F>(vrndmq_f32(lo), vrndmq_f32(hi));
-#elif defined(JUMPER_IS_AVX512)
+#elif defined(JUMPER_IS_SKX)
     return _mm512_floor_ps(x);
 #elif defined(JUMPER_IS_HSW)
     __m256 lo,hi;
@@ -4750,7 +4750,7 @@ SI F floor_(F x) {
 // The result is a number on [-1, 1).
 // Note: on neon this is a saturating multiply while the others are not.
 SI I16 scaled_mult(I16 a, I16 b) {
-#if defined(JUMPER_IS_AVX512)
+#if defined(JUMPER_IS_SKX)
     return _mm256_mulhrs_epi16(a, b);
 #elif defined(JUMPER_IS_HSW)
     return _mm256_mulhrs_epi16(a, b);
@@ -5026,7 +5026,7 @@ SI void store(T* ptr, V v) {
     memcpy(ptr, &v, sizeof(v));
 }
 
-#if defined(JUMPER_IS_AVX512)
+#if defined(JUMPER_IS_SKX)
     template <typename V, typename T>
     SI V gather(const T* ptr, U32 ix) {
         return V{ ptr[ix[ 0]], ptr[ix[ 1]], ptr[ix[ 2]], ptr[ix[ 3]],
@@ -5082,7 +5082,7 @@ SI void store(T* ptr, V v) {
 // ~~~~~~ 32-bit memory loads and stores ~~~~~~ //
 
 SI void from_8888(U32 rgba, U16* r, U16* g, U16* b, U16* a) {
-#if defined(JUMPER_IS_AVX512)
+#if defined(JUMPER_IS_SKX)
     rgba = _mm512_permutexvar_epi64(_mm512_setr_epi64(0,1,4,5,2,3,6,7), rgba);
     auto cast_U16 = [](U32 v) -> U16 {
         return _mm256_packus_epi32(_mm512_castsi512_si256(v), _mm512_extracti64x4_epi64(v, 1));

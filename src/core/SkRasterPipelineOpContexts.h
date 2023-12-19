@@ -19,11 +19,12 @@ namespace SkSL { class TraceHook; }
 // by stages that have no lowp implementation. They can therefore use the (smaller) highp value to
 // save memory in the arena.
 inline static constexpr int SkRasterPipeline_kMaxStride = 16;
-inline static constexpr int SkRasterPipeline_kMaxStride_highp = 16;
+inline static constexpr int SkRasterPipeline_kMaxStride_highp = 8;
+inline static constexpr int SkRasterPipeline_kMaxStride_highp_skx = 16;
 
 // How much space to allocate for each MemoryCtx scratch buffer, as part of tail-pixel handling.
 inline static constexpr size_t SkRasterPipeline_MaxScratchPerPatch =
-        std::max(SkRasterPipeline_kMaxStride_highp * 16,  // 16 == largest highp bpp (RGBA_F32)
+        std::max(SkRasterPipeline_kMaxStride_highp_skx * 16,  // 16 == largest highp bpp (RGBA_F32)
                  SkRasterPipeline_kMaxStride * 4);        // 4 == largest lowp bpp (RGBA_8888)
 
 // These structs hold the context data for many of the Raster Pipeline ops.
@@ -74,17 +75,17 @@ struct SkRasterPipeline_GatherCtx {
 
 // State shared by save_xy, accumulate, and bilinear_* / bicubic_*.
 struct SkRasterPipeline_SamplerCtx {
-    float      x[SkRasterPipeline_kMaxStride_highp];
-    float      y[SkRasterPipeline_kMaxStride_highp];
-    float     fx[SkRasterPipeline_kMaxStride_highp];
-    float     fy[SkRasterPipeline_kMaxStride_highp];
-    float scalex[SkRasterPipeline_kMaxStride_highp];
-    float scaley[SkRasterPipeline_kMaxStride_highp];
+    float      x[SkRasterPipeline_kMaxStride_highp_skx];
+    float      y[SkRasterPipeline_kMaxStride_highp_skx];
+    float     fx[SkRasterPipeline_kMaxStride_highp_skx];
+    float     fy[SkRasterPipeline_kMaxStride_highp_skx];
+    float scalex[SkRasterPipeline_kMaxStride_highp_skx];
+    float scaley[SkRasterPipeline_kMaxStride_highp_skx];
 
     // for bicubic_[np][13][xy]
     float weights[16];
-    float wx[4][SkRasterPipeline_kMaxStride_highp];
-    float wy[4][SkRasterPipeline_kMaxStride_highp];
+    float wx[4][SkRasterPipeline_kMaxStride_highp_skx];
+    float wy[4][SkRasterPipeline_kMaxStride_highp_skx];
 };
 
 struct SkRasterPipeline_TileCtx {
@@ -111,14 +112,14 @@ struct SkRasterPipeline_DecalTileCtx {
 // State used by mipmap_linear_*
 struct SkRasterPipeline_MipmapCtx {
     // Original coords, saved before the base level logic
-    float x[SkRasterPipeline_kMaxStride_highp];
-    float y[SkRasterPipeline_kMaxStride_highp];
+    float x[SkRasterPipeline_kMaxStride_highp_skx];
+    float y[SkRasterPipeline_kMaxStride_highp_skx];
 
     // Base level color
-    float r[SkRasterPipeline_kMaxStride_highp];
-    float g[SkRasterPipeline_kMaxStride_highp];
-    float b[SkRasterPipeline_kMaxStride_highp];
-    float a[SkRasterPipeline_kMaxStride_highp];
+    float r[SkRasterPipeline_kMaxStride_highp_skx];
+    float g[SkRasterPipeline_kMaxStride_highp_skx];
+    float b[SkRasterPipeline_kMaxStride_highp_skx];
+    float a[SkRasterPipeline_kMaxStride_highp_skx];
 
     // Scale factors to transform base level coords to lower level coords
     float scaleX;
@@ -138,7 +139,7 @@ struct SkRasterPipeline_CallbackCtx {
 
     // When called, fn() will have our active pixels available in rgba.
     // When fn() returns, the pipeline will read back those active pixels from read_from.
-    float rgba[4*SkRasterPipeline_kMaxStride_highp];
+    float rgba[4*SkRasterPipeline_kMaxStride_highp_skx];
     float* read_from = rgba;
 };
 
@@ -146,14 +147,14 @@ struct SkRasterPipeline_CallbackCtx {
 struct SkRasterPipelineStage;
 
 struct SkRasterPipeline_RewindCtx {
-    float  r[SkRasterPipeline_kMaxStride_highp];
-    float  g[SkRasterPipeline_kMaxStride_highp];
-    float  b[SkRasterPipeline_kMaxStride_highp];
-    float  a[SkRasterPipeline_kMaxStride_highp];
-    float dr[SkRasterPipeline_kMaxStride_highp];
-    float dg[SkRasterPipeline_kMaxStride_highp];
-    float db[SkRasterPipeline_kMaxStride_highp];
-    float da[SkRasterPipeline_kMaxStride_highp];
+    float  r[SkRasterPipeline_kMaxStride_highp_skx];
+    float  g[SkRasterPipeline_kMaxStride_highp_skx];
+    float  b[SkRasterPipeline_kMaxStride_highp_skx];
+    float  a[SkRasterPipeline_kMaxStride_highp_skx];
+    float dr[SkRasterPipeline_kMaxStride_highp_skx];
+    float dg[SkRasterPipeline_kMaxStride_highp_skx];
+    float db[SkRasterPipeline_kMaxStride_highp_skx];
+    float da[SkRasterPipeline_kMaxStride_highp_skx];
     std::byte* base;
     SkRasterPipelineStage* stage;
 };
@@ -192,14 +193,18 @@ struct SkRasterPipeline_TablesCtx {
 
 using SkRPOffset = uint32_t;
 
+struct SkRasterPipeline_InitLaneMasksCtx {
+    uint8_t* tail;
+};
+
 struct SkRasterPipeline_ConstantCtx {
     float value;
     SkRPOffset dst;
 };
 
 struct SkRasterPipeline_UniformCtx {
-    float *dst;
-    const float *src;
+    float* dst;
+    const float* src;
 };
 
 struct SkRasterPipeline_BinaryOpCtx {
@@ -227,20 +232,20 @@ struct SkRasterPipeline_SwizzleCtx {
 };
 
 struct SkRasterPipeline_ShuffleCtx {
-    float *ptr;
+    float* ptr;
     int count;
     uint16_t offsets[16];  // values must be byte offsets (4 * highp-stride * component-index)
 };
 
 struct SkRasterPipeline_SwizzleCopyCtx {
-    float *dst;
-    float *src;           // src values must _not_ overlap dst values
+    float* dst;
+    float* src;           // src values must _not_ overlap dst values
     uint16_t offsets[4];  // values must be byte offsets (4 * highp-stride * component-index)
 };
 
 struct SkRasterPipeline_CopyIndirectCtx {
-    float *dst;
-    const float *src;
+    float* dst;
+    const float* src;
     const uint32_t *indirectOffset;  // this applies to `src` or `dst` based on the op
     uint32_t indirectLimit;          // the indirect offset is clamped to this upper bound
     uint32_t slots;                  // the number of slots to copy
@@ -252,6 +257,10 @@ struct SkRasterPipeline_SwizzleCopyIndirectCtx : public SkRasterPipeline_CopyInd
 
 struct SkRasterPipeline_BranchCtx {
     int offset;  // contains the label ID during compilation, and the program offset when compiled
+};
+
+struct SkRasterPipeline_BranchIfAllLanesActiveCtx : public SkRasterPipeline_BranchCtx {
+    uint8_t* tail = nullptr;  // lanes past the tail are _never_ active, so we need to exclude them
 };
 
 struct SkRasterPipeline_BranchIfEqualCtx : public SkRasterPipeline_BranchCtx {
